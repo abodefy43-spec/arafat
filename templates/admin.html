@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>لوحة الإدارة</title>
+</head>
+<body>
+    <h1>لوحة الإدارة</h1>
+
+    <h2>المستخدمون</h2>
+    <ul>
+        {% for user in users %}
+        <li>{{ user[1] }} - {{ user[2] }} - <a href="/delete/{{ user[0] }}">حذف</a></li>
+        {% endfor %}
+    </ul>
+
+    <h2>الأزواج المقترحين</h2>
+    <ul>
+        {% for p in pairings %}
+        <li>{{ p[0] }} ({{ p[1] }}) ↔ {{ p[2] }} ({{ p[3] }}) - {{ p[4] }} كم</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
