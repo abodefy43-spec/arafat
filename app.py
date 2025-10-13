@@ -4,13 +4,12 @@ from flask_sqlalchemy import SQLAlchemy
 from geopy.distance import geodesic
 import statistics
 
-
 app = Flask(__name__)
 
-# PostgreSQL on Render
+# PostgreSQL on Render (fallback to SQLite locally)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'sqlite:///users.db'  # fallback for local testing
+    'sqlite:///users.db'
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -24,15 +23,29 @@ class User(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     matched_with = db.Column(db.String(200), nullable=True)
 
-# Initialize tables (temporary, can remove after first run)
+# Initialize tables
 with app.app_context():
     db.create_all()
 
-# Routes
+# Home page
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# Get user by name (for prefill)
+@app.route('/get_user/<string:name>')
+def get_user(name):
+    user = User.query.filter_by(name=name).first()
+    if user:
+        return jsonify({
+            'name': user.name,
+            'phone': user.phone,
+            'latitude': user.latitude,
+            'longitude': user.longitude
+        })
+    return jsonify(None)
+
+# Form submission
 @app.route('/submit', methods=['POST'])
 def submit():
     data = request.get_json()
@@ -41,7 +54,7 @@ def submit():
     lat = data['location']['lat']
     lng = data['location']['lng']
 
-    # Check if user already exists
+    # Check if user exists
     existing = User.query.filter_by(phone=phone).first()
     if existing:
         existing.name = name
@@ -80,11 +93,22 @@ def submit():
 
     return jsonify({'status': 'success'})
 
+# Admin page
 @app.route('/admin')
 def admin():
     users = User.query.all()
-    return render_template('admin.html', users=users)
+    pairings = []
+    seen = set()
+    for u in users:
+        if u.matched_with and (u.id, u.matched_with) not in seen and (u.matched_with, u.id) not in seen:
+            match_user = User.query.filter_by(name=u.matched_with).first()
+            if match_user:
+                dist = geodesic((u.latitude, u.longitude), (match_user.latitude, match_user.longitude)).km
+                pairings.append((u.name, u.phone, match_user.name, match_user.phone, round(dist, 2)))
+                seen.add((u.id, match_user.id))
+    return render_template('admin.html', users=users, pairings=pairings)
 
+# Delete user
 @app.route('/delete/<int:user_id>')
 def delete(user_id):
     user = User.query.get(user_id)
