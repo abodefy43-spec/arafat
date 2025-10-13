@@ -6,10 +6,10 @@ import statistics
 
 app = Flask(__name__)
 
-# Use the DATABASE_URL from Render environment variables
+# PostgreSQL on Render (or fallback to SQLite locally)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'DATABASE_URL',
-    'sqlite:///users.db'  # fallback for local testing
+    'sqlite:///users.db'
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -23,7 +23,12 @@ class User(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     matched_with = db.Column(db.String(200), nullable=True)
 
-# --- Routes ---
+# Initialize DB on startup
+with app.app_context():
+    db.create_all()
+
+# ---------- ROUTES ----------
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -73,19 +78,32 @@ def submit():
 
     return jsonify({'status': 'success'})
 
+@app.route('/get_user/<string:name>')
+def get_user(name):
+    user = User.query.filter_by(name=name).first()
+    if user:
+        return jsonify({
+            'name': user.name,
+            'phone': user.phone,
+            'latitude': user.latitude,
+            'longitude': user.longitude
+        })
+    return jsonify({})
+
 @app.route('/admin')
 def admin():
     users = User.query.all()
-    # Compute pairings for display
+    # Build pairings list (optional)
     pairings = []
-    matched_names = set()
+    seen = set()
     for u in users:
-        if u.matched_with and (u.name, u.matched_with) not in matched_names and (u.matched_with, u.name) not in matched_names:
-            other = User.query.filter_by(name=u.matched_with).first()
-            if other:
-                dist = round(geodesic((u.latitude, u.longitude), (other.latitude, other.longitude)).km, 2)
-                pairings.append((u.name, u.phone, other.name, other.phone, dist))
-                matched_names.add((u.name, other.name))
+        if u.matched_with and u.id not in seen:
+            partner = User.query.filter_by(name=u.matched_with).first()
+            if partner:
+                dist = geodesic((u.latitude, u.longitude), (partner.latitude, partner.longitude)).km
+                pairings.append((u.name, u.phone, partner.name, partner.phone, round(dist, 2)))
+                seen.add(u.id)
+                seen.add(partner.id)
     return render_template('admin.html', users=users, pairings=pairings)
 
 @app.route('/delete/<int:user_id>')
@@ -96,35 +114,6 @@ def delete(user_id):
         db.session.commit()
     return redirect(url_for('admin'))
 
-# Production-safe database initialization
-@app.before_first_request
-def create_tables():
-    try:
-        db.create_all()
-    except Exception as e:
-        print("Error creating tables:", e)
-
-from geopy.distance import geodesic
-
-@app.route('/admin')
-def admin():
-    users = User.query.all()
-    pairings = []
-    matched_names = set()
-
-    for u in users:
-        if u.matched_with:
-            # Make sure we don’t duplicate pairs
-            pair_key = tuple(sorted([u.name, u.matched_with]))
-            if pair_key not in matched_names:
-                other = User.query.filter_by(name=u.matched_with).first()
-                if other:
-                    dist = round(geodesic((u.latitude, u.longitude), (other.latitude, other.longitude)).km, 2)
-                    pairings.append((u.name, u.phone, other.name, other.phone, dist))
-                    matched_names.add(pair_key)
-
-    return render_template('admin.html', users=users, pairings=pairings)
-
-
+# ---------- RUN APP ----------
 if __name__ == '__main__':
     app.run(debug=True)
