@@ -1,25 +1,28 @@
 from flask import Flask, render_template, request, jsonify, redirect
-import sqlite3
+from flask_sqlalchemy import SQLAlchemy
 from geopy.distance import geodesic
 import statistics
+import os
 
 app = Flask(__name__)
-DB_PATH = "users.db"
 
-# Initialize database
-conn = sqlite3.connect(DB_PATH)
-c = conn.cursor()
-c.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    phone TEXT NOT NULL,
-    latitude REAL NOT NULL,
-    longitude REAL NOT NULL
-)
-''')
-conn.commit()
-conn.close()
+# Connect to Render PostgreSQL
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(app)
+
+# Define your User model
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(50), nullable=False)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+
+# Ensure tables exist
+with app.app_context():
+    db.create_all()
 
 @app.route("/", methods=["GET"])
 def index():
@@ -27,18 +30,13 @@ def index():
 
 @app.route("/get_user/<name>", methods=["GET"])
 def get_user(name):
-    """Return existing user data if already submitted"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT name, phone, latitude, longitude FROM users WHERE name=?", (name,))
-    user = c.fetchone()
-    conn.close()
+    user = User.query.filter_by(name=name).first()
     if user:
         return jsonify({
-            "name": user[0],
-            "phone": user[1],
-            "latitude": user[2],
-            "longitude": user[3]
+            "name": user.name,
+            "phone": user.phone,
+            "latitude": user.latitude,
+            "longitude": user.longitude
         })
     return jsonify(None)
 
@@ -50,36 +48,24 @@ def submit():
     lat = data["location"]["lat"]
     lon = data["location"]["lng"]
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE name=?", (name,))
-    if c.fetchone():
-        # Update existing submission
-        c.execute(
-            "UPDATE users SET phone=?, latitude=?, longitude=? WHERE name=?",
-            (phone, lat, lon, name)
-        )
+    user = User.query.filter_by(name=name).first()
+    if user:
+        user.phone = phone
+        user.latitude = lat
+        user.longitude = lon
     else:
-        # Insert new submission
-        c.execute(
-            "INSERT INTO users (name, phone, latitude, longitude) VALUES (?, ?, ?, ?)",
-            (name, phone, lat, lon)
-        )
-    conn.commit()
-    conn.close()
+        user = User(name=name, phone=phone, latitude=lat, longitude=lon)
+        db.session.add(user)
+
+    db.session.commit()
     return jsonify({"status": "success"})
 
 @app.route("/admin")
 def admin():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, name, phone, latitude, longitude FROM users")
-    users = c.fetchall()
-    conn.close()
+    users = User.query.all()
 
-    # Pairing based on 0.5 standard deviation
     pairings = []
-    coords = [(u[1], u[2], (u[3], u[4])) for u in users]  # name, phone, (lat, lon)
+    coords = [(u.name, u.phone, (u.latitude, u.longitude)) for u in users]
     distances = []
 
     for i in range(len(coords)):
@@ -104,11 +90,9 @@ def admin():
 
 @app.route("/delete/<int:user_id>")
 def delete(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM users WHERE id=?", (user_id,))
-    conn.commit()
-    conn.close()
+    user = User.query.get_or_404(user_id)
+    db.session.delete(user)
+    db.session.commit()
     return redirect("/admin")
 
 if __name__ == "__main__":
