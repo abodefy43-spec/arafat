@@ -104,5 +104,27 @@ def create_tables():
     except Exception as e:
         print("Error creating tables:", e)
 
+from geopy.distance import geodesic
+
+@app.route('/admin')
+def admin():
+    users = User.query.all()
+    pairings = []
+    matched_names = set()
+
+    for u in users:
+        if u.matched_with:
+            # Make sure we don’t duplicate pairs
+            pair_key = tuple(sorted([u.name, u.matched_with]))
+            if pair_key not in matched_names:
+                other = User.query.filter_by(name=u.matched_with).first()
+                if other:
+                    dist = round(geodesic((u.latitude, u.longitude), (other.latitude, other.longitude)).km, 2)
+                    pairings.append((u.name, u.phone, other.name, other.phone, dist))
+                    matched_names.add(pair_key)
+
+    return render_template('admin.html', users=users, pairings=pairings)
+
+
 if __name__ == '__main__':
     app.run(debug=True)
