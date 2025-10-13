@@ -1,99 +1,97 @@
-from flask import Flask, render_template, request, jsonify, redirect
+import os
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from geopy.distance import geodesic
 import statistics
-import os
+
 
 app = Flask(__name__)
 
-# Connect to Render PostgreSQL
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL") or "sqlite:///local.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
+# PostgreSQL on Render
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL',
+    'sqlite:///users.db'  # fallback for local testing
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Define your User model
+# Database model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    phone = db.Column(db.String(50), nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
+    matched_with = db.Column(db.String(200), nullable=True)
 
-# Ensure tables exist
+# Initialize tables (temporary, can remove after first run)
 with app.app_context():
     db.create_all()
 
-@app.route("/", methods=["GET"])
+# Routes
+@app.route('/')
 def index():
-    return render_template("index.html")
+    return render_template('index.html')
 
-@app.route("/get_user/<name>", methods=["GET"])
-def get_user(name):
-    user = User.query.filter_by(name=name).first()
-    if user:
-        return jsonify({
-            "name": user.name,
-            "phone": user.phone,
-            "latitude": user.latitude,
-            "longitude": user.longitude
-        })
-    return jsonify(None)
-
-@app.route("/submit", methods=["POST"])
+@app.route('/submit', methods=['POST'])
 def submit():
     data = request.get_json()
-    name = data.get("name")
-    phone = data.get("phone")
-    lat = data["location"]["lat"]
-    lon = data["location"]["lng"]
+    name = data.get('name')
+    phone = data.get('phone')
+    lat = data['location']['lat']
+    lng = data['location']['lng']
 
-    user = User.query.filter_by(name=name).first()
-    if user:
-        user.phone = phone
-        user.latitude = lat
-        user.longitude = lon
-    else:
-        user = User(name=name, phone=phone, latitude=lat, longitude=lon)
-        db.session.add(user)
+    # Check if user already exists
+    existing = User.query.filter_by(phone=phone).first()
+    if existing:
+        existing.name = name
+        existing.latitude = lat
+        existing.longitude = lng
+        db.session.commit()
+        return jsonify({'status': 'updated'})
 
+    user = User(name=name, phone=phone, latitude=lat, longitude=lng)
+    db.session.add(user)
     db.session.commit()
-    return jsonify({"status": "success"})
 
-@app.route("/admin")
-def admin():
+    # Pairing logic (0.5 SD)
     users = User.query.all()
-
-    pairings = []
-    coords = [(u.name, u.phone, (u.latitude, u.longitude)) for u in users]
-    distances = []
-
-    for i in range(len(coords)):
-        for j in range(i + 1, len(coords)):
-            dist = geodesic(coords[i][2], coords[j][2]).km
+    if len(users) > 1:
+        distances = []
+        for u in users:
+            if u.id == user.id:
+                continue
+            dist = geodesic((lat, lng), (u.latitude, u.longitude)).km
             distances.append(dist)
 
-    if distances:
-        mean_dist = statistics.mean(distances)
-        stdev_dist = statistics.stdev(distances) if len(distances) > 1 else 0
-        for i in range(len(coords)):
-            for j in range(i + 1, len(coords)):
-                dist = geodesic(coords[i][2], coords[j][2]).km
-                if abs(dist - mean_dist) <= 0.5 * stdev_dist:
-                    pairings.append((
-                        coords[i][0], coords[i][1],
-                        coords[j][0], coords[j][1],
-                        round(dist, 2)
-                    ))
+        if distances:
+            mean_dist = statistics.mean(distances)
+            sd_dist = statistics.stdev(distances) if len(distances) > 1 else 0
+            for u in users:
+                if u.id == user.id:
+                    continue
+                dist = geodesic((lat, lng), (u.latitude, u.longitude)).km
+                if abs(dist - mean_dist) <= 0.5 * sd_dist:
+                    # Pair users
+                    user.matched_with = u.name
+                    u.matched_with = user.name
+                    db.session.commit()
+                    break
 
-    return render_template("admin.html", users=users, pairings=pairings)
+    return jsonify({'status': 'success'})
 
-@app.route("/delete/<int:user_id>")
+@app.route('/admin')
+def admin():
+    users = User.query.all()
+    return render_template('admin.html', users=users)
+
+@app.route('/delete/<int:user_id>')
 def delete(user_id):
-    user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
-    return redirect("/admin")
+    user = User.query.get(user_id)
+    if user:
+        db.session.delete(user)
+        db.session.commit()
+    return redirect(url_for('admin'))
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
