@@ -120,8 +120,11 @@
 </head>
 <body>
     <!-- Header -->
-    <header class="py-4 mb-3">
+    <header class="py-4 mb-3 d-flex justify-content-between align-items-center">
         <h1>لوحة الإدارة</h1>
+        <div>
+            <a href="/admin_logout" class="btn btn-outline-secondary btn-sm">تسجيل خروج</a>
+        </div>
     </header>
 
     <main class="container" style="max-width: 900px;">
@@ -155,17 +158,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for user in users %}
-                        <tr>
-                            <td>{{ user.name }}</td>
-                            <td>{{ user.phone }}</td>
-                            <td>{{ user.latitude }}</td>
-                            <td>{{ user.longitude }}</td>
-                            <td>
-                                <button class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteModal" data-userid="{{ user.id }}" data-username="{{ user.name }}">حذف</button>
-                            </td>
-                        </tr>
-                        {% endfor %}
+                                {% for user in users %}
+                                <tr>
+                                    <td>{{ user.name }}</td>
+                                    <td class="phone-cell" role="button" tabindex="0">{{ user.phone }}</td>
+                                    <td>{{ user.latitude }}</td>
+                                    <td>{{ user.longitude }}</td>
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteModal" data-userid="{{ user.id }}" data-username="{{ user.name }}">حذف</button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
                     </tbody>
                 </table>
             </div>
@@ -176,10 +179,22 @@
             <h2 class="mb-3" style="color:var(--primary);font-size:1.3rem;font-weight:600;">الأزواج المقترحين</h2>
             {% if pairings %}
                 {% for p in pairings %}
-                <div class="pair-card">
-                    <div class="pair-title">{{ p[0] }} ({{ p[1] }}) <span style="color:var(--secondary);">↔</span> {{ p[2] }} ({{ p[3] }})</div>
-                    <div class="pair-distance">المسافة: {{ p[4] }} كم</div>
-                </div>
+                    <div class="pair-card">
+                        <div class="pair-title">{{ p[0] }} ({{ p[1] }}) <span style="color:var(--secondary);">↔</span> {{ p[2] }} ({{ p[3] }})</div>
+                        <div class="pair-distance">المسافة: {{ p[4] }} كم</div>
+                        <div class="d-flex gap-2">
+                            <!-- Copy message addressed to the first person about the second -->
+                            <button class="btn btn-outline-primary btn-sm copy-msg" 
+                                    data-recipient="{{ p[0] }}" data-other-name="{{ p[2] }}" data-other-number="{{ p[3] }}" data-distance="{{ p[4] }}">
+                                نسخ الرسالة لـ {{ p[0] }}
+                            </button>
+                            <!-- Copy message addressed to the second person about the first -->
+                            <button class="btn btn-outline-primary btn-sm copy-msg" 
+                                    data-recipient="{{ p[2] }}" data-other-name="{{ p[0] }}" data-other-number="{{ p[1] }}" data-distance="{{ p[4] }}">
+                                نسخ الرسالة لـ {{ p[2] }}
+                            </button>
+                        </div>
+                    </div>
                 {% endfor %}
             {% else %}
                 <div class="alert alert-info" role="alert">لا توجد أزواج مقترحة حالياً.</div>
@@ -217,7 +232,12 @@
             var userId = button.getAttribute('data-userid');
             var userName = button.getAttribute('data-username');
             document.getElementById('modalUserName').textContent = userName;
-            document.getElementById('confirmDeleteBtn').href = '/delete/' + userId;
+            // Preserve admin password in modal delete link if present
+            var params = new URLSearchParams(window.location.search);
+            var pw = params.get('password') || '';
+            var href = '/delete/' + userId;
+            if(pw) href += '?password=' + encodeURIComponent(pw);
+            document.getElementById('confirmDeleteBtn').href = href;
         });
 
         // Simple table sorting (by column)
@@ -250,6 +270,39 @@
             document.querySelectorAll('#user-table tbody tr').forEach(function(row) {
                 var name = row.children[0].textContent;
                 row.style.display = name.includes(val) ? '' : 'none';
+            });
+        });
+
+        // Phone click -> show localized alert
+        document.addEventListener('click', function(e) {
+            if(e.target && e.target.classList && e.target.classList.contains('phone-cell')) {
+                alert('غير محدد');
+            }
+        });
+
+        // Copy suggested message (two buttons per pair). Build an official message and copy to clipboard.
+        document.querySelectorAll('.copy-msg').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var recipient = this.getAttribute('data-recipient');
+                var otherName = this.getAttribute('data-other-name');
+                var otherNumber = this.getAttribute('data-other-number');
+                var distance = this.getAttribute('data-distance');
+
+                var msg = `السلام عليكم ورحمة الله وبركاته\n\n${recipient} المحترم/ة،\nنود إعلامكم بأنه تم العثور على شخص قريب من موقعك على بعد ${distance} كم.\nالاسم: ${otherName}\nرقم الجوال: ${otherNumber}\n\nلمزيد من المعلومات والتنسيق، يرجى التواصل مباشرة.\n\nمع التحية،\nادارة مدرسة عرفات`;
+
+                navigator.clipboard.writeText(msg).then(function() {
+                    var original = btn.textContent;
+                    btn.textContent = 'تم النسخ!';
+                    btn.classList.remove('btn-outline-primary');
+                    btn.classList.add('btn-success');
+                    setTimeout(() => {
+                        btn.textContent = original;
+                        btn.classList.remove('btn-success');
+                        btn.classList.add('btn-outline-primary');
+                    }, 2500);
+                }).catch(function() {
+                    alert('فشل في نسخ الرسالة');
+                });
             });
         });
     </script>

@@ -220,6 +220,11 @@
         .then(res => res.json())
         .then(data => {
             if(data.status === 'success') {
+                // Navigate to thank you page if server requested redirect
+                if(data.redirect) {
+                    window.location.href = data.redirect;
+                    return;
+                }
                 showAlert('success', 'تم إرسال بياناتك بنجاح!');
                 form.reset();
                 coordsDiv.textContent = '';
