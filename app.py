@@ -33,9 +33,9 @@ with app.app_context():
     db.create_all()
 
 # ---------------- AiSensy WhatsApp integration ----------------
-# Directly set the API key and URL here, no need for environment variables
-AISENSY_API_KEY = 'your_actual_aisensy_api_key'  # Replace with your AiSensy API key
-AISENSY_API_URL = 'https://api.aisensy.com/v1/message'  # Replace with AiSensy API URL (default)
+# Read API URL and API key from environment variables (safer than hardcoding)
+AISENSY_API_URL = os.getenv('AISENSY_API_URL', 'https://api.aisensy.com/v1/message')
+AISENSY_API_KEY = os.getenv('AISENSY_API_KEY')
 
 def send_whatsapp_message(number: str, message: str) -> bool:
     """Send a WhatsApp text message via AiSensy."""
@@ -56,13 +56,13 @@ def send_whatsapp_message(number: str, message: str) -> bool:
 
     try:
         resp = requests.post(AISENSY_API_URL, json=payload, headers=headers, timeout=10)
-        if resp.status_code >= 200 and resp.status_code < 300:
+        if 200 <= resp.status_code < 300:
             app.logger.info('AiSensy: message sent to %s (status=%s)', number, resp.status_code)
             return True
         app.logger.error('AiSensy: failed to send to %s (status=%s) body=%s', number, resp.status_code, resp.text)
         return False
-    except Exception:
-        app.logger.exception('AiSensy: exception while sending to %s', number)
+    except Exception as e:
+        app.logger.exception('AiSensy: exception while sending to %s: %s', number, str(e))
         return False
 
 # ----------------------------------------------------------------
