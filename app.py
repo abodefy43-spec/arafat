@@ -4,10 +4,12 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from flask_sqlalchemy import SQLAlchemy
 from geopy.distance import geodesic
 import statistics
+import requests
 
 app = Flask(__name__)
+
 # Secret key for session. In production set SECRET_KEY env var to a strong secret.
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
+app.secret_key = 'dev-secret-change-me'
 
 # PostgreSQL on Render (or fallback to SQLite locally)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
@@ -29,6 +31,41 @@ class User(db.Model):
 # Initialize DB on startup
 with app.app_context():
     db.create_all()
+
+# ---------------- AiSensy WhatsApp integration ----------------
+# Directly set the API key and URL here, no need for environment variables
+AISENSY_API_KEY = 'your_actual_aisensy_api_key'  # Replace with your AiSensy API key
+AISENSY_API_URL = 'https://api.aisensy.com/v1/message'  # Replace with AiSensy API URL (default)
+
+def send_whatsapp_message(number: str, message: str) -> bool:
+    """Send a WhatsApp text message via AiSensy."""
+    if not AISENSY_API_KEY:
+        app.logger.info('AiSensy API key not configured; skipping message to %s', number)
+        return False
+
+    headers = {
+        'Authorization': f'Bearer {AISENSY_API_KEY}',
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        'to': number,
+        'type': 'text',
+        'text': { 'body': message }
+    }
+
+    try:
+        resp = requests.post(AISENSY_API_URL, json=payload, headers=headers, timeout=10)
+        if resp.status_code >= 200 and resp.status_code < 300:
+            app.logger.info('AiSensy: message sent to %s (status=%s)', number, resp.status_code)
+            return True
+        app.logger.error('AiSensy: failed to send to %s (status=%s) body=%s', number, resp.status_code, resp.text)
+        return False
+    except Exception:
+        app.logger.exception('AiSensy: exception while sending to %s', number)
+        return False
+
+# ----------------------------------------------------------------
 
 # ---------- ROUTES ----------
 
@@ -77,6 +114,26 @@ def submit():
                     user.matched_with = u.name
                     u.matched_with = user.name
                     db.session.commit()
+
+                    # Send WhatsApp notifications to both users (if API key configured)
+                    try:
+                        # Message to the new user about the matched person
+                        msg_to_user = (
+                            f"السلام عليكم ورحمة الله وبركاته\n\n{user.name} المحترم/ة،\n" 
+                            f"نود إعلامكم بأنه تم العثور على شخص قريب من موقعك على بعد {round(dist,2)} كم.\n"
+                            f"الاسم: {u.name}\nرقم الجوال: {u.phone}\n\nلمزيد من المعلومات والتنسيق، يرجى التواصل مباشرة.\n\nمع التحية،\nادارة مدرسة عرفات"
+                        )
+                        send_whatsapp_message(user.phone, msg_to_user)
+
+                        # Message to the matched partner about the new user
+                        msg_to_partner = (
+                            f"السلام عليكم ورحمة الله وبركاته\n\n{u.name} المحترم/ة،\n" 
+                            f"نود إعلامكم بأنه تم العثور على شخص قريب من موقعك على بعد {round(dist,2)} كم.\n"
+                            f"الاسم: {user.name}\nرقم الجوال: {user.phone}\n\nلمزيد من المعلومات والتنسيق، يرجى التواصل مباشرة.\n\nمع التحية،\nادارة مدرسة عرفات"
+                        )
+                        send_whatsapp_message(u.phone, msg_to_partner)
+                    except Exception:
+                        app.logger.exception('Error sending WhatsApp notifications for pairing')
                     break
 
     # Return JSON including a redirect URL so the client can navigate to the thank-you page
@@ -98,7 +155,6 @@ def get_user(name):
 def admin_logout():
     session.pop('is_admin', None)
     return redirect(url_for('index'))
-
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
@@ -129,9 +185,6 @@ def admin():
                 seen.add(partner.id)
     return render_template('admin.html', users=users, pairings=pairings)
 
-
-
-
 @app.route('/delete/<int:user_id>')
 def delete(user_id):
     # Only allow deletion when logged in as admin
@@ -142,7 +195,6 @@ def delete(user_id):
         db.session.delete(user)
         db.session.commit()
     return redirect(url_for('admin'))
-
 
 @app.route('/thank_you')
 def thank_you():
