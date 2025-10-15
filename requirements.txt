@@ -6,3 +6,5 @@ Flask-SQLAlchemy
 psycopg2-binary
 geopy
 requests
+Flask==3.1.2
+requests>=2.31.0

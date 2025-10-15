@@ -35,7 +35,7 @@ with app.app_context():
 # ---------------- AiSensy WhatsApp integration ----------------
 # Read API URL and API key from environment variables (safer than hardcoding)
 AISENSY_API_URL = os.getenv('AISENSY_API_URL', 'https://api.aisensy.com/v1/message')
-AISENSY_API_KEY = os.getenv('AISENSY_API_KEY')
+AISENSY_API_KEY = os.getenv('AISENSY_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZWU3YjUxYTQxZmEzMmE3OTNmN2I1OSIsIm5hbWUiOiJhcmFmYXQiLCJhcHBOYW1lIjoiQWlTZW5zeSIsImNsaWVudElkIjoiNjhlZTdiNTFhNDFmYTMyYTc5M2Y3YjU0IiwiYWN0aXZlUGxhbiI6IkZSRUVfRk9SRVZFUiIsImlhdCI6MTc2MDQ1OTYwMX0.My_0mxxW9a4LUzxHErpQjSEjVas_2VsyhjXiMeMkKbM')
 
 def send_whatsapp_message(number: str, message: str) -> bool:
     """Send a WhatsApp text message via AiSensy."""
@@ -203,3 +203,4 @@ def thank_you():
 # ---------- RUN APP ----------
 if __name__ == '__main__':
     app.run(debug=True)
+    
